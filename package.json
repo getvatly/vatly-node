@@ -1,5 +1,5 @@
 {
-  "name": "@vatly/node",
+  "name": "vatly",
   "version": "0.2.0",
   "description": "Official TypeScript SDK for the Vatly VAT validation API",
   "main": "./dist/index.js",

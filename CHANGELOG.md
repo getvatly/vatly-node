@@ -6,7 +6,7 @@ Complete rewrite of the SDK. This is a breaking release with a new package name.
 
 ### Breaking Changes
 
-- **Package renamed** from `vatly` to `@vatly/node`
+- **Package name** is `vatly`
 - **Resource-based API**: methods are now namespaced under `vatly.vat.*` and `vatly.rates.*` instead of flat `vatly.validate()` / `vatly.validateBatch()`
 - **`{ data, error }` return pattern**: all methods return a result tuple instead of throwing. Only the constructor still throws (missing API key is a programmer error).
 - **Removed `validate()` / `validateRaw()`**: use `vatly.vat.validate(params)` which returns the full response including meta and rate limits
