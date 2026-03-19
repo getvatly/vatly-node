@@ -1,17 +1,17 @@
-# vatly
+# @vatly/node
 
 Official TypeScript SDK for the [Vatly](https://vatly.dev) VAT validation API. Validate EU and UK VAT numbers, look up VAT rates by country. See the full [API reference](https://docs.vatly.dev/api-reference).
 
 ## Installation
 
 ```bash
-npm install vatly
+npm install @vatly/node
 ```
 
 ## Quick Start
 
 ```typescript
-import Vatly from 'vatly';
+import Vatly from '@vatly/node';
 
 const vatly = new Vatly('vtly_live_...');
 
@@ -53,7 +53,7 @@ if (data) {
 Validate up to 50 VAT numbers in a single request. Returns `{ data, error }`.
 
 ```typescript
-import Vatly, { isBatchSuccess } from 'vatly';
+import Vatly, { isBatchSuccess } from '@vatly/node';
 
 const vatly = new Vatly('vtly_live_...');
 const { data, error } = await vatly.vat.validateBatch({
@@ -108,7 +108,7 @@ if (data) {
 Every method returns `{ data, error }` instead of throwing. The `error` is always a `VatlyError` (or subclass). Use `instanceof` to narrow:
 
 ```typescript
-import Vatly, { AuthenticationError, RateLimitError, UpstreamError } from 'vatly';
+import Vatly, { AuthenticationError, RateLimitError, UpstreamError } from '@vatly/node';
 
 const { data, error } = await vatly.vat.validate({ vatNumber: 'INVALID' });
 
@@ -209,8 +209,8 @@ import type {
   VatRate,
   ListRatesResponse,
   GetRateResponse,
-} from 'vatly';
-import { isBatchSuccess } from 'vatly';
+} from '@vatly/node';
+import { isBatchSuccess } from '@vatly/node';
 ```
 
 ## Requirements
