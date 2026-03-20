@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.3.0
+
+Sync SDK with latest Vatly API surface.
+
+### Added
+
+- **Error codes**: `forbidden`, `key_revoked`, `key_limit_reached`, `upstream_member_state_unavailable`, `internal_error`
+- **`sourceStatus`** field on `ResponseMeta` and `BatchItemMeta` (`'live' | 'unavailable' | 'degraded' | null`)
+- **Burst rate limit headers**: `burstLimit` and `burstRemaining` on `RateLimitInfo`
+- **`error.details`** property on `VatlyError` — surfaces `details` array from 422 `validation_error` responses
+- **`BatchResponseMeta`** type — slimmer meta type for batch responses (only `requestId`, `mode`, `requestDurationMs`)
+
+### Changed
+
+- `forbidden` and `key_revoked` now map to `AuthenticationError` (previously `forbidden` fell through to base `VatlyError`)
+- `validation_error` and `invalid_json` now map to `ValidationError`
+- `upstream_member_state_unavailable` maps to `UpstreamError`
+- `OtherRate.type` widened from `'reduced' | 'super_reduced' | 'zero'` to `string`
+- `ValidateBatchResponse.meta` now uses `BatchResponseMeta` instead of `ResponseMeta`
+
+### Removed
+
+- `upstream_error` error code (does not exist in API)
+
 ## 0.2.0
 
 Complete rewrite of the SDK. This is a breaking release with a new package name.

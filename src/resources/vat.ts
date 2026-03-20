@@ -6,6 +6,7 @@ import type {
   ValidateResponse,
   VatValidationData,
   ResponseMeta,
+  BatchResponseMeta,
   ValidateBatchParams,
   ValidateBatchResponse,
   BatchResult,
@@ -100,7 +101,7 @@ export class Vat {
 
     const transformed = snakeToCamel(result.data.json) as {
       data: { results: BatchResult[]; summary: BatchSummary };
-      meta: ResponseMeta;
+      meta: BatchResponseMeta;
     };
 
     return {

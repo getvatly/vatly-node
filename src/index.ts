@@ -72,6 +72,7 @@ export type {
   Company,
   VatValidationData,
   ResponseMeta,
+  BatchResponseMeta,
   RateLimitInfo,
   ValidateResponse,
   ValidateBatchParams,

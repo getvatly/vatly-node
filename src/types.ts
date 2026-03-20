@@ -12,11 +12,15 @@ export type ErrorCode =
   | 'unauthorized'
   | 'rate_limit_exceeded'
   | 'burst_limit_exceeded'
-  | 'upstream_error'
   | 'upstream_unavailable'
+  | 'upstream_member_state_unavailable'
   | 'validation_error'
   | 'invalid_json'
   | 'tier_insufficient'
+  | 'forbidden'
+  | 'key_revoked'
+  | 'key_limit_reached'
+  | 'internal_error'
   | 'not_found';
 
 // --- Configuration ---
@@ -57,6 +61,7 @@ export interface ResponseMeta {
   stale: boolean | null;
   mode: 'test' | null;
   requestDurationMs: number | null;
+  sourceStatus: 'live' | 'unavailable' | 'degraded' | null;
 }
 
 export interface RateLimitInfo {
@@ -64,6 +69,8 @@ export interface RateLimitInfo {
   remaining: number | null;
   reset: string | null;
   retryAfter: number | null;
+  burstLimit: number | null;
+  burstRemaining: number | null;
 }
 
 export interface ValidateResponse {
@@ -85,6 +92,7 @@ export interface BatchItemMeta {
   cached: boolean | null;
   cachedAt: string | null;
   stale: boolean | null;
+  sourceStatus: 'live' | 'unavailable' | 'degraded' | null;
 }
 
 export interface BatchResultSuccess {
@@ -109,9 +117,15 @@ export interface BatchSummary {
   failed: number;
 }
 
+export interface BatchResponseMeta {
+  requestId: string;
+  mode: 'test' | null;
+  requestDurationMs: number | null;
+}
+
 export interface ValidateBatchResponse {
   data: { results: BatchResult[]; summary: BatchSummary };
-  meta: ResponseMeta;
+  meta: BatchResponseMeta;
   rateLimit: RateLimitInfo;
 }
 
@@ -119,7 +133,7 @@ export interface ValidateBatchResponse {
 
 export interface OtherRate {
   rate: number;
-  type: 'reduced' | 'super_reduced' | 'zero';
+  type: string;
 }
 
 export interface VatRate {

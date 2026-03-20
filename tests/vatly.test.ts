@@ -41,6 +41,7 @@ const VALID_RESPONSE = {
     stale: null,
     mode: null,
     request_duration_ms: 150,
+    source_status: null,
   },
 };
 
@@ -285,6 +286,7 @@ describe('vatly.vat.validate()', () => {
         stale: false,
         mode: null,
         request_duration_ms: 5,
+        source_status: null,
       },
     };
     fetchSpy.mockResolvedValueOnce(mockResponse(cachedResponse));
@@ -307,6 +309,7 @@ describe('vatly.vat.validate()', () => {
         cached_at: null,
         stale: null,
         request_duration_ms: 10,
+        source_status: null,
       },
     };
     fetchSpy.mockResolvedValueOnce(mockResponse(testResponse));
@@ -327,6 +330,7 @@ describe('vatly.vat.validate()', () => {
         stale: true,
         mode: null,
         request_duration_ms: 2,
+        source_status: null,
       },
     };
     fetchSpy.mockResolvedValueOnce(mockResponse(staleResponse));
@@ -373,6 +377,8 @@ describe('vatly.vat.validate()', () => {
       remaining: 42,
       reset: '2026-05-01T00:00:00Z',
       retryAfter: 10,
+      burstLimit: null,
+      burstRemaining: null,
     });
   });
 
@@ -506,10 +512,10 @@ describe('vatly.vat.validate()', () => {
     expect((result.error as UpstreamError).retryAfter).toBe(60);
   });
 
-  it('returns UpstreamError on 503 upstream_error', async () => {
+  it('returns UpstreamError on 503 upstream_member_state_unavailable', async () => {
     fetchSpy.mockResolvedValueOnce(
       mockResponse(
-        { error: { message: 'HMRC returned an unexpected error', code: 'upstream_error' }, meta: { request_id: 'req_err4b' } },
+        { error: { message: 'Member state service unavailable', code: 'upstream_member_state_unavailable' }, meta: { request_id: 'req_err4b' } },
         503,
       ),
     );
@@ -517,7 +523,7 @@ describe('vatly.vat.validate()', () => {
     const result = await client.vat.validate({ vatNumber: 'GB123456789' });
 
     expect(result.error).toBeInstanceOf(UpstreamError);
-    expect(result.error!.code).toBe('upstream_error');
+    expect(result.error!.code).toBe('upstream_member_state_unavailable');
     expect(result.error!.requestId).toBe('req_err4b');
   });
 
@@ -619,7 +625,7 @@ describe('vatly.vat.validate()', () => {
     expect(result.error!.requestId).toBe('req_from_header');
   });
 
-  it('returns generic VatlyError for undocumented error code', async () => {
+  it('returns AuthenticationError on 403 forbidden', async () => {
     fetchSpy.mockResolvedValueOnce(
       mockResponse(
         { error: { message: 'Access forbidden', code: 'forbidden' }, meta: { request_id: 'req_forbidden' } },
@@ -629,10 +635,188 @@ describe('vatly.vat.validate()', () => {
     const client = new Vatly(MOCK_API_KEY);
     const result = await client.vat.validate({ vatNumber: 'NL123456789B01' });
 
-    expect(result.error).toBeInstanceOf(VatlyError);
-    expect(result.error).not.toBeInstanceOf(AuthenticationError);
+    expect(result.error).toBeInstanceOf(AuthenticationError);
     expect(result.error!.code).toBe('forbidden');
     expect(result.error!.statusCode).toBe(403);
+  });
+
+  it('returns AuthenticationError on 401 key_revoked', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      mockResponse(
+        { error: { message: 'API key has been revoked', code: 'key_revoked' }, meta: { request_id: 'req_revoked' } },
+        401,
+      ),
+    );
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validate({ vatNumber: 'NL123456789B01' });
+
+    expect(result.error).toBeInstanceOf(AuthenticationError);
+    expect(result.error!.code).toBe('key_revoked');
+    expect(result.error!.statusCode).toBe(401);
+  });
+
+  it('returns ValidationError on 422 validation_error with details', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      mockResponse(
+        {
+          error: {
+            message: 'Validation failed',
+            code: 'validation_error',
+            details: [{ field: 'vat_number', message: 'must be a string' }],
+          },
+          meta: { request_id: 'req_val_details' },
+        },
+        422,
+      ),
+    );
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validate({ vatNumber: 'NL123456789B01' });
+
+    expect(result.error).toBeInstanceOf(ValidationError);
+    expect(result.error!.code).toBe('validation_error');
+    expect(result.error!.details).toEqual([{ field: 'vat_number', message: 'must be a string' }]);
+  });
+
+  it('returns ValidationError on 400 invalid_json', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      mockResponse(
+        { error: { message: 'Invalid JSON body', code: 'invalid_json' }, meta: { request_id: 'req_json' } },
+        400,
+      ),
+    );
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validate({ vatNumber: 'NL123456789B01' });
+
+    expect(result.error).toBeInstanceOf(ValidationError);
+    expect(result.error!.code).toBe('invalid_json');
+    expect(result.error!.statusCode).toBe(400);
+  });
+
+  it('returns UpstreamError on 503 upstream_member_state_unavailable', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      mockResponse(
+        { error: { message: 'Member state service is unavailable', code: 'upstream_member_state_unavailable' }, meta: { request_id: 'req_ms' } },
+        503,
+      ),
+    );
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validate({ vatNumber: 'NL123456789B01' });
+
+    expect(result.error).toBeInstanceOf(UpstreamError);
+    expect(result.error!.code).toBe('upstream_member_state_unavailable');
+  });
+
+  it('returns generic VatlyError on 500 internal_error', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      mockResponse(
+        { error: { message: 'Internal server error', code: 'internal_error' }, meta: { request_id: 'req_internal' } },
+        500,
+      ),
+    );
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validate({ vatNumber: 'NL123456789B01' });
+
+    expect(result.error).toBeInstanceOf(VatlyError);
+    expect(result.error).not.toBeInstanceOf(AuthenticationError);
+    expect(result.error).not.toBeInstanceOf(ValidationError);
+    expect(result.error!.code).toBe('internal_error');
+    expect(result.error!.statusCode).toBe(500);
+  });
+
+  it('returns generic VatlyError on 403 key_limit_reached', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      mockResponse(
+        { error: { message: 'Monthly key limit reached', code: 'key_limit_reached' }, meta: { request_id: 'req_limit' } },
+        403,
+      ),
+    );
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validate({ vatNumber: 'NL123456789B01' });
+
+    expect(result.error).toBeInstanceOf(VatlyError);
+    expect(result.error).not.toBeInstanceOf(AuthenticationError);
+    expect(result.error!.code).toBe('key_limit_reached');
+  });
+
+  // --- sourceStatus ---
+
+  it('surfaces sourceStatus "live" from response meta', async () => {
+    const response = {
+      data: VALID_RESPONSE.data,
+      meta: { ...VALID_RESPONSE.meta, source_status: 'live' },
+    };
+    fetchSpy.mockResolvedValueOnce(mockResponse(response));
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validate({ vatNumber: 'NL123456789B01' });
+
+    expect(result.data!.meta.sourceStatus).toBe('live');
+  });
+
+  it('surfaces sourceStatus "unavailable" from response meta', async () => {
+    const response = {
+      data: VALID_RESPONSE.data,
+      meta: { ...VALID_RESPONSE.meta, source_status: 'unavailable' },
+    };
+    fetchSpy.mockResolvedValueOnce(mockResponse(response));
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validate({ vatNumber: 'NL123456789B01' });
+
+    expect(result.data!.meta.sourceStatus).toBe('unavailable');
+  });
+
+  it('surfaces sourceStatus "degraded" from response meta', async () => {
+    const response = {
+      data: VALID_RESPONSE.data,
+      meta: { ...VALID_RESPONSE.meta, source_status: 'degraded' },
+    };
+    fetchSpy.mockResolvedValueOnce(mockResponse(response));
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validate({ vatNumber: 'NL123456789B01' });
+
+    expect(result.data!.meta.sourceStatus).toBe('degraded');
+  });
+
+  // --- Burst limit headers ---
+
+  it('parses X-Burst-Limit and X-Burst-Remaining headers', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      mockResponse(VALID_RESPONSE, 200, {
+        'x-ratelimit-limit': '100',
+        'x-ratelimit-remaining': '99',
+        'x-ratelimit-reset': '2026-04-01T00:00:00Z',
+        'x-burst-limit': '20',
+        'x-burst-remaining': '15',
+      }),
+    );
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validate({ vatNumber: 'NL123456789B01' });
+
+    expect(result.data!.rateLimit.burstLimit).toBe(20);
+    expect(result.data!.rateLimit.burstRemaining).toBe(15);
+  });
+
+  it('returns null for absent burst limit headers', async () => {
+    fetchSpy.mockResolvedValueOnce(mockResponse(VALID_RESPONSE));
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validate({ vatNumber: 'NL123456789B01' });
+
+    expect(result.data!.rateLimit.burstLimit).toBeNull();
+    expect(result.data!.rateLimit.burstRemaining).toBeNull();
+  });
+
+  // --- Error details ---
+
+  it('errors without details have null', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      mockResponse(
+        { error: { message: 'Invalid API key', code: 'unauthorized' }, meta: { request_id: 'req_nodet' } },
+        401,
+      ),
+    );
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validate({ vatNumber: 'NL123456789B01' });
+
+    expect(result.error!.details).toBeNull();
   });
 });
 
@@ -663,7 +847,7 @@ describe('vatly.vat.validateBatch()', () => {
             consultation_number: null,
             requested_at: '2026-03-18T12:00:00Z',
           },
-          meta: { cached: null, cached_at: null, stale: null },
+          meta: { cached: null, cached_at: null, stale: null, source_status: null },
         },
         {
           data: {
@@ -674,16 +858,13 @@ describe('vatly.vat.validateBatch()', () => {
             consultation_number: null,
             requested_at: '2026-03-18T12:00:01Z',
           },
-          meta: { cached: null, cached_at: null, stale: null },
+          meta: { cached: null, cached_at: null, stale: null, source_status: null },
         },
       ],
       summary: { total: 2, succeeded: 2, failed: 0 },
     },
     meta: {
       request_id: 'req_batch1',
-      cached: null,
-      cached_at: null,
-      stale: null,
       mode: null,
       request_duration_ms: 300,
     },
@@ -719,7 +900,7 @@ describe('vatly.vat.validateBatch()', () => {
               consultation_number: null,
               requested_at: '2026-03-18T12:00:00Z',
             },
-            meta: { cached: null, cached_at: null, stale: null },
+            meta: { cached: null, cached_at: null, stale: null, source_status: null },
           },
           {
             error: { code: 'invalid_vat_format', message: 'Invalid VAT format' },
@@ -730,9 +911,6 @@ describe('vatly.vat.validateBatch()', () => {
       },
       meta: {
         request_id: 'req_batch_mixed',
-        cached: null,
-        cached_at: null,
-        stale: null,
         mode: null,
         request_duration_ms: 200,
       },
@@ -758,7 +936,7 @@ describe('vatly.vat.validateBatch()', () => {
         ],
         summary: { total: 2, succeeded: 0, failed: 2 },
       },
-      meta: { request_id: 'req_all_fail', cached: null, cached_at: null, stale: null, mode: null, request_duration_ms: 50 },
+      meta: { request_id: 'req_all_fail', mode: null, request_duration_ms: 50 },
     };
     fetchSpy.mockResolvedValueOnce(mockResponse(allFailResponse));
     const client = new Vatly(MOCK_API_KEY);
@@ -820,6 +998,8 @@ describe('vatly.vat.validateBatch()', () => {
       remaining: 48,
       reset: '2026-05-01T00:00:00Z',
       retryAfter: null,
+      burstLimit: null,
+      burstRemaining: null,
     });
   });
 
@@ -884,6 +1064,37 @@ describe('vatly.vat.validateBatch()', () => {
     expect(result.error).toBeInstanceOf(RateLimitError);
     expect((result.error as RateLimitError).retryAfter).toBe(15);
   });
+
+  it('surfaces per-item sourceStatus in batch results', async () => {
+    const batchWithSourceStatus = {
+      data: {
+        results: [
+          {
+            data: {
+              valid: true,
+              vat_number: 'NL123456789B01',
+              country_code: 'NL',
+              company: { name: 'Test BV', address: 'Amsterdam' },
+              consultation_number: null,
+              requested_at: '2026-03-18T12:00:00Z',
+            },
+            meta: { cached: null, cached_at: null, stale: null, source_status: 'live' },
+          },
+        ],
+        summary: { total: 1, succeeded: 1, failed: 0 },
+      },
+      meta: { request_id: 'req_batch_ss', mode: null, request_duration_ms: 100 },
+    };
+    fetchSpy.mockResolvedValueOnce(mockResponse(batchWithSourceStatus));
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validateBatch({ vatNumbers: ['NL123456789B01'] });
+
+    const item = result.data!.data.results[0];
+    expect(isBatchSuccess(item)).toBe(true);
+    if (isBatchSuccess(item)) {
+      expect(item.meta.sourceStatus).toBe('live');
+    }
+  });
 });
 
 // ─── isBatchSuccess type guard ────────────────────────────────
@@ -899,7 +1110,7 @@ describe('isBatchSuccess', () => {
         consultationNumber: null,
         requestedAt: '2026-03-18T12:00:00Z',
       },
-      meta: { cached: null, cachedAt: null, stale: null },
+      meta: { cached: null, cachedAt: null, stale: null, sourceStatus: null },
     };
     expect(isBatchSuccess(success)).toBe(true);
   });
@@ -1140,7 +1351,7 @@ describe('VatlyError', () => {
     const auth = new AuthenticationError('msg', 'unauthorized', 401, null, '');
     const val = new ValidationError('msg', 'invalid_vat_format', 422, null, '');
     const rate = new RateLimitError('msg', 'rate_limit_exceeded', 429, null, '', 30);
-    const upstream = new UpstreamError('msg', 'upstream_error', 503, null, '', 60);
+    const upstream = new UpstreamError('msg', 'upstream_unavailable', 503, null, '', 60);
 
     expect(auth).toBeInstanceOf(VatlyError);
     expect(auth).toBeInstanceOf(AuthenticationError);
@@ -1149,5 +1360,16 @@ describe('VatlyError', () => {
     expect(rate.retryAfter).toBe(30);
     expect(upstream).toBeInstanceOf(UpstreamError);
     expect(upstream.retryAfter).toBe(60);
+  });
+
+  it('details defaults to null', () => {
+    const err = new VatlyError('msg', 'code', 400, null, '');
+    expect(err.details).toBeNull();
+  });
+
+  it('details carries array when set', () => {
+    const details = [{ field: 'vat_number', message: 'is required' }];
+    const err = new VatlyError('msg', 'code', 422, null, '', details);
+    expect(err.details).toEqual([{ field: 'vat_number', message: 'is required' }]);
   });
 });

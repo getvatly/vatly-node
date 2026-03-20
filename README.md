@@ -44,7 +44,10 @@ if (data) {
   console.log(data.data.company?.name);      // 'Example BV'
   console.log(data.data.consultationNumber); // null or string
   console.log(data.meta.requestId);          // 'req_abc123'
+  console.log(data.meta.sourceStatus);       // 'live' | 'unavailable' | 'degraded' | null
   console.log(data.rateLimit.remaining);     // 99
+  console.log(data.rateLimit.burstLimit);    // number or null
+  console.log(data.rateLimit.burstRemaining); // number or null
 }
 ```
 
@@ -130,11 +133,11 @@ if (error) {
 
 | Class | Trigger |
 |-------|---------|
-| `AuthenticationError` | Invalid/missing API key (`unauthorized`) or insufficient tier (`tier_insufficient`) |
-| `ValidationError` | Invalid VAT format (`invalid_vat_format`) or missing params (`missing_parameter`) |
-| `RateLimitError` | Rate or burst limit exceeded (`rate_limit_exceeded`, `burst_limit_exceeded`) |
-| `UpstreamError` | Tax authority unavailable (`upstream_unavailable`, `upstream_error`) |
-| `VatlyError` | Base class for all errors, including `timeout`, `network_error`, `parse_error` |
+| `AuthenticationError` | `unauthorized`, `tier_insufficient`, `forbidden`, `key_revoked` |
+| `ValidationError` | `invalid_vat_format`, `missing_parameter`, `validation_error`, `invalid_json` |
+| `RateLimitError` | `rate_limit_exceeded`, `burst_limit_exceeded` |
+| `UpstreamError` | `upstream_unavailable`, `upstream_member_state_unavailable` |
+| `VatlyError` | Base class for all errors, including `timeout`, `network_error`, `parse_error`, `internal_error`, `key_limit_reached` |
 
 ### Error Properties
 
@@ -144,6 +147,7 @@ error.code       // Machine-readable code (e.g. 'unauthorized', 'rate_limit_exce
 error.statusCode // HTTP status (0 for network/timeout errors)
 error.requestId  // Request ID (string or null)
 error.docsUrl    // Link to error documentation (string, empty if not provided)
+error.details    // Validation error details array (Array<{ field, message }> or null)
 ```
 
 ### Retries
@@ -204,6 +208,7 @@ import type {
   BatchSummary,
   Company,
   ResponseMeta,
+  BatchResponseMeta,
   RateLimitInfo,
   OtherRate,
   VatRate,

@@ -10,10 +10,10 @@ import {
 
 import type { VatlyResult, RateLimitInfo } from './types.js';
 
-const AUTHENTICATION_CODES = new Set(['unauthorized', 'tier_insufficient']);
-const VALIDATION_CODES = new Set(['invalid_vat_format', 'missing_parameter']);
+const AUTHENTICATION_CODES = new Set(['unauthorized', 'tier_insufficient', 'forbidden', 'key_revoked']);
+const VALIDATION_CODES = new Set(['invalid_vat_format', 'missing_parameter', 'validation_error', 'invalid_json']);
 const RATE_LIMIT_CODES = new Set(['rate_limit_exceeded', 'burst_limit_exceeded']);
-const UPSTREAM_CODES = new Set(['upstream_unavailable', 'upstream_error']);
+const UPSTREAM_CODES = new Set(['upstream_unavailable', 'upstream_member_state_unavailable']);
 
 export function snakeToCamel(value: unknown): unknown {
   if (value === null || value === undefined) return value;
@@ -49,6 +49,8 @@ export function parseRateLimitHeaders(headers: Headers): RateLimitInfo {
     remaining: parseRateLimitHeader(headers, 'x-ratelimit-remaining'),
     reset: headers.get('x-ratelimit-reset'),
     retryAfter,
+    burstLimit: parseRateLimitHeader(headers, 'x-burst-limit'),
+    burstRemaining: parseRateLimitHeader(headers, 'x-burst-remaining'),
   };
 }
 
@@ -59,12 +61,13 @@ function buildError(
   requestId: string | null,
   docsUrl: string,
   retryAfter: number | null,
+  details: Array<{ field: string; message: string }> | null,
 ): VatlyError {
   if (AUTHENTICATION_CODES.has(code)) {
     return new AuthenticationError(message, code, statusCode, requestId, docsUrl);
   }
   if (VALIDATION_CODES.has(code)) {
-    return new ValidationError(message, code, statusCode, requestId, docsUrl);
+    return new ValidationError(message, code, statusCode, requestId, docsUrl, details);
   }
   if (RATE_LIMIT_CODES.has(code)) {
     return new RateLimitError(message, code, statusCode, requestId, docsUrl, retryAfter);
@@ -72,7 +75,7 @@ function buildError(
   if (UPSTREAM_CODES.has(code)) {
     return new UpstreamError(message, code, statusCode, requestId, docsUrl, retryAfter);
   }
-  return new VatlyError(message, code, statusCode, requestId, docsUrl);
+  return new VatlyError(message, code, statusCode, requestId, docsUrl, details);
 }
 
 export interface HttpRequestOptions {
@@ -212,10 +215,11 @@ export class HttpClient {
 
     const retryAfterRaw = response.headers.get('retry-after');
     const retryAfter = retryAfterRaw ? Number(retryAfterRaw) : null;
+    const details = Array.isArray(error?.details) ? (error.details as Array<{ field: string; message: string }>) : null;
 
     return {
       data: null,
-      error: buildError(message, code, response.status, requestId, docsUrl, retryAfter),
+      error: buildError(message, code, response.status, requestId, docsUrl, retryAfter, details),
     };
   }
 }
