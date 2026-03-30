@@ -1,7 +1,7 @@
 {
   "name": "@vatly/node",
-  "version": "0.3.0",
-  "description": "Official TypeScript SDK for the Vatly VAT validation API",
+  "version": "0.5.0",
+  "description": "Official TypeScript SDK for the Vatly VAT and GST validation API",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -32,11 +32,17 @@
   },
   "keywords": [
     "vat",
+    "gst",
     "validation",
     "eu",
     "uk",
+    "switzerland",
+    "norway",
+    "australia",
     "tax",
-    "vatly"
+    "vatly",
+    "vies",
+    "hmrc"
   ],
   "author": "Vatly",
   "license": "MIT",

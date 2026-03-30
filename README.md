@@ -1,6 +1,6 @@
 # @vatly/node
 
-Official TypeScript SDK for the [Vatly](https://vatly.dev) VAT validation API. Validate EU and UK VAT numbers, look up VAT rates by country. See the full [API reference](https://docs.vatly.dev/api-reference).
+Official TypeScript SDK for the [Vatly](https://vatly.dev) VAT validation API. Validate VAT and GST numbers across 32 countries (EU, UK, CH, LI, NO, AU), look up VAT rates by country. See the full [API reference](https://docs.vatly.dev/api-reference).
 
 ## Installation
 
@@ -76,6 +76,42 @@ if (data) {
       console.log(`${item.meta.vatNumber} failed: ${item.error.message}`);
     }
   }
+}
+```
+
+### Async Validation
+
+Submit a VAT number for asynchronous validation. The result is delivered to your configured [webhook URL](https://docs.vatly.dev/webhooks). Requires a Pro or Business plan.
+
+```typescript
+const { data, error } = await vatly.vat.validateAsync({
+  vatNumber: 'DE123456789',
+});
+
+if (error) {
+  console.error(error.code); // e.g. 'webhook_not_configured'
+} else {
+  console.log(data.data.requestId); // UUID to correlate with webhook delivery
+  console.log(data.data.status);    // 'pending'
+}
+```
+
+### Async Batch Validation
+
+Submit multiple VAT numbers for asynchronous validation. Pro tier supports up to 200 items, Business up to 1,000. Items with invalid formats are rejected immediately and never queued.
+
+```typescript
+const { data, error } = await vatly.vat.validateBatchAsync({
+  vatNumbers: ['DE123456789', 'NL987654321B01', 'XX000'],
+});
+
+if (error) {
+  console.error(error.message);
+} else {
+  console.log(data.data.batchId);  // UUID (null if all rejected)
+  console.log(data.data.status);   // 'pending' or 'completed'
+  console.log(data.data.accepted); // 2
+  console.log(data.data.rejected); // [{ vatNumber: 'XX000', error: { code, message } }]
 }
 ```
 
@@ -196,11 +232,20 @@ import type {
   VatlyOptions,
   VatlyResult,
   ErrorCode,
+  ClientErrorCode,
   ValidateParams,
   VatValidationData,
   ValidateResponse,
   ValidateBatchParams,
   ValidateBatchResponse,
+  AsyncValidateParams,
+  AsyncValidateData,
+  AsyncMeta,
+  AsyncValidateResponse,
+  AsyncBatchValidateParams,
+  AsyncRejectedItem,
+  AsyncBatchValidateData,
+  AsyncBatchValidateResponse,
   BatchResult,
   BatchResultSuccess,
   BatchResultError,

@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.5.0
+
+### Added
+
+- **Async validation**: `vatly.vat.validateAsync()` for single async VAT validation (Pro/Business tiers, requires webhook)
+- **Async batch validation**: `vatly.vat.validateBatchAsync()` for batch async validation (up to 200 Pro / 1000 Business)
+- New types: `AsyncValidateParams`, `AsyncValidateData`, `AsyncMeta`, `AsyncValidateResponse`, `AsyncBatchValidateParams`, `AsyncRejectedItem`, `AsyncBatchValidateData`, `AsyncBatchValidateResponse`
+- New error code: `webhook_not_configured`
+
+## 0.4.0
+
+Align SDK types and documentation with Vatly API v1.0 OpenAPI spec. The API now covers 32 countries including CH, LI, NO, and AU.
+
+### Breaking Changes
+
+- **`VatValidationData.consultationNumber`** is now optional (`string | null | undefined` instead of `string | null`). The API may omit this field entirely for CH, LI, NO, and AU validations. Code that checks `data.consultationNumber === null` should also handle `undefined`.
+
+### Added
+
+- **`ClientErrorCode`** type for SDK-internal error codes (`timeout`, `network_error`, `parse_error`, `unknown_error`, `missing_api_key`, `batch_too_large`). These are generated client-side and are separate from the API `ErrorCode` union.
+
+### Changed
+
+- Package description updated to "VAT and GST validation API" to reflect AU/GST support
+- README scope updated from "EU and UK" to "32 countries (EU, UK, CH, LI, NO, AU)"
+- Keywords expanded with `gst`, `switzerland`, `norway`, `australia`, `vies`, `hmrc`
+
 ## 0.3.0
 
 Sync SDK with latest Vatly API surface.
@@ -56,7 +83,7 @@ Complete rewrite of the SDK. This is a breaking release with a new package name.
 - `vatly.rates.list()`: list VAT rates for all countries
 - `vatly.rates.get(countryCode)`: get VAT rate for a specific country
 - `VatlyResult<T>` generic result type
-- `ErrorCode` union type with all 11 API error codes
+- `ErrorCode` union type with all API error codes
 - `BatchItemMeta` type for per-item cache metadata
 - `OtherRate`, `VatRate`, `ListRatesResponse`, `GetRateResponse` types
 

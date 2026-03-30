@@ -218,6 +218,26 @@ describe('vatly.vat.validate()', () => {
     expect('consultationNumber' in result.data!.data).toBe(true);
   });
 
+  it('handles absent consultation_number field (not in response)', async () => {
+    const responseWithoutConsultation = {
+      data: {
+        valid: true,
+        vat_number: 'CHE123456789MWST',
+        country_code: 'CH',
+        company: { name: 'Swiss AG', address: 'Zurich, Switzerland' },
+        requested_at: '2026-03-18T12:00:00Z',
+      },
+      meta: VALID_RESPONSE.meta,
+    };
+    fetchSpy.mockResolvedValueOnce(mockResponse(responseWithoutConsultation));
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validate({ vatNumber: 'CHE123456789MWST' });
+
+    expect(result.data!.data.consultationNumber).toBeUndefined();
+    expect(result.data!.data.valid).toBe(true);
+    expect(result.data!.data.countryCode).toBe('CH');
+  });
+
   it('handles null company field', async () => {
     const responseWithNullCompany = {
       ...VALID_RESPONSE,
@@ -1065,6 +1085,59 @@ describe('vatly.vat.validateBatch()', () => {
     expect((result.error as RateLimitError).retryAfter).toBe(15);
   });
 
+  it('handles CH, NO, and AU VAT/GST number formats', async () => {
+    const multiCountryResponse = {
+      data: {
+        results: [
+          {
+            data: {
+              valid: true,
+              vat_number: 'CHE123456789MWST',
+              country_code: 'CH',
+              company: { name: 'Swiss AG', address: 'Zurich' },
+              requested_at: '2026-03-18T12:00:00Z',
+            },
+            meta: { cached: null, cached_at: null, stale: null, source_status: 'live' },
+          },
+          {
+            data: {
+              valid: true,
+              vat_number: 'NO123456789MVA',
+              country_code: 'NO',
+              company: { name: 'Norse AS', address: 'Oslo' },
+              requested_at: '2026-03-18T12:00:01Z',
+            },
+            meta: { cached: null, cached_at: null, stale: null, source_status: 'live' },
+          },
+          {
+            data: {
+              valid: true,
+              vat_number: 'AU51824753556',
+              country_code: 'AU',
+              company: { name: 'Aussie Pty', address: 'Sydney' },
+              requested_at: '2026-03-18T12:00:02Z',
+            },
+            meta: { cached: null, cached_at: null, stale: null, source_status: 'live' },
+          },
+        ],
+        summary: { total: 3, succeeded: 3, failed: 0 },
+      },
+      meta: { request_id: 'req_multi', mode: null, request_duration_ms: 400 },
+    };
+    fetchSpy.mockResolvedValueOnce(mockResponse(multiCountryResponse));
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validateBatch({
+      vatNumbers: ['CHE123456789MWST', 'NO123456789MVA', 'AU51824753556'],
+    });
+
+    expect(result.error).toBeNull();
+    expect(result.data!.data.results).toHaveLength(3);
+    const [ch, no, au] = result.data!.data.results;
+    expect(isBatchSuccess(ch) && ch.data.countryCode).toBe('CH');
+    expect(isBatchSuccess(no) && no.data.countryCode).toBe('NO');
+    expect(isBatchSuccess(au) && au.data.countryCode).toBe('AU');
+  });
+
   it('surfaces per-item sourceStatus in batch results', async () => {
     const batchWithSourceStatus = {
       data: {
@@ -1121,6 +1194,506 @@ describe('isBatchSuccess', () => {
       meta: { vatNumber: 'XX000' },
     };
     expect(isBatchSuccess(failure)).toBe(false);
+  });
+});
+
+// ─── vatly.vat.validateAsync() ──────────────────────────────
+
+describe('vatly.vat.validateAsync()', () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  const ASYNC_SINGLE_RESPONSE = {
+    data: {
+      request_id: '550e8400-e29b-41d4-a716-446655440000',
+      status: 'pending',
+      vat_number: 'DE123456789',
+    },
+    meta: {
+      request_id: 'req_async1',
+    },
+  };
+
+  it('returns { data, error: null } on 202 success', async () => {
+    fetchSpy.mockResolvedValueOnce(mockResponse(ASYNC_SINGLE_RESPONSE, 202));
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validateAsync({ vatNumber: 'DE123456789' });
+
+    expect(result.error).toBeNull();
+    expect(result.data!.data.requestId).toBe('550e8400-e29b-41d4-a716-446655440000');
+    expect(result.data!.data.status).toBe('pending');
+    expect(result.data!.data.vatNumber).toBe('DE123456789');
+    expect(result.data!.meta.requestId).toBe('req_async1');
+  });
+
+  it('sends POST to /v1/validate/async with correct JSON body', async () => {
+    fetchSpy.mockResolvedValueOnce(mockResponse(ASYNC_SINGLE_RESPONSE, 202));
+    const client = new Vatly(MOCK_API_KEY);
+    await client.vat.validateAsync({ vatNumber: 'DE123456789' });
+
+    const [callUrl, callInit] = fetchSpy.mock.calls[0];
+    expect(callUrl).toContain('/v1/validate/async');
+    expect(callInit.method).toBe('POST');
+    const body = JSON.parse(callInit.body);
+    expect(body.vat_number).toBe('DE123456789');
+  });
+
+  it('sends requester_vat_number in body when provided', async () => {
+    fetchSpy.mockResolvedValueOnce(mockResponse(ASYNC_SINGLE_RESPONSE, 202));
+    const client = new Vatly(MOCK_API_KEY);
+    await client.vat.validateAsync({
+      vatNumber: 'DE123456789',
+      requesterVatNumber: 'NL987654321B01',
+    });
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.requester_vat_number).toBe('NL987654321B01');
+  });
+
+  it('sends cache: false in body when cache is false', async () => {
+    fetchSpy.mockResolvedValueOnce(mockResponse(ASYNC_SINGLE_RESPONSE, 202));
+    const client = new Vatly(MOCK_API_KEY);
+    await client.vat.validateAsync({ vatNumber: 'DE123456789', cache: false });
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.cache).toBe(false);
+  });
+
+  it('does not include cache key in body when cache is omitted', async () => {
+    fetchSpy.mockResolvedValueOnce(mockResponse(ASYNC_SINGLE_RESPONSE, 202));
+    const client = new Vatly(MOCK_API_KEY);
+    await client.vat.validateAsync({ vatNumber: 'DE123456789' });
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body).not.toHaveProperty('cache');
+  });
+
+  it('transforms snake_case to camelCase', async () => {
+    fetchSpy.mockResolvedValueOnce(mockResponse(ASYNC_SINGLE_RESPONSE, 202));
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validateAsync({ vatNumber: 'DE123456789' });
+
+    expect(result.data!.data).toHaveProperty('requestId');
+    expect(result.data!.data).toHaveProperty('vatNumber');
+    expect(result.data!.data).not.toHaveProperty('request_id');
+    expect(result.data!.data).not.toHaveProperty('vat_number');
+    expect(result.data!.meta).toHaveProperty('requestId');
+    expect(result.data!.meta).not.toHaveProperty('request_id');
+  });
+
+  it('sends Authorization and User-Agent headers', async () => {
+    fetchSpy.mockResolvedValueOnce(mockResponse(ASYNC_SINGLE_RESPONSE, 202));
+    const client = new Vatly('vtly_live_mykey');
+    await client.vat.validateAsync({ vatNumber: 'DE123456789' });
+
+    const headers = (fetchSpy.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
+    expect(headers.Authorization).toBe('Bearer vtly_live_mykey');
+    expect(headers['User-Agent']).toMatch(/^vatly-node\//);
+  });
+
+  it('sends X-Request-Id header when requestId option is provided', async () => {
+    fetchSpy.mockResolvedValueOnce(mockResponse(ASYNC_SINGLE_RESPONSE, 202));
+    const client = new Vatly(MOCK_API_KEY);
+    await client.vat.validateAsync({ vatNumber: 'DE123456789', requestId: 'my-async-trace' });
+
+    const headers = (fetchSpy.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
+    expect(headers['X-Request-Id']).toBe('my-async-trace');
+  });
+
+  it('trims whitespace from vatNumber', async () => {
+    fetchSpy.mockResolvedValueOnce(mockResponse(ASYNC_SINGLE_RESPONSE, 202));
+    const client = new Vatly(MOCK_API_KEY);
+    await client.vat.validateAsync({ vatNumber: '  DE123456789  ' });
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.vat_number).toBe('DE123456789');
+  });
+
+  it('parses rate limit headers', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      mockResponse(ASYNC_SINGLE_RESPONSE, 202, {
+        'x-ratelimit-limit': '500',
+        'x-ratelimit-remaining': '499',
+        'x-ratelimit-reset': '2026-05-01T00:00:00Z',
+      }),
+    );
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validateAsync({ vatNumber: 'DE123456789' });
+
+    expect(result.data!.rateLimit.limit).toBe(500);
+    expect(result.data!.rateLimit.remaining).toBe(499);
+    expect(result.data!.rateLimit.reset).toBe('2026-05-01T00:00:00Z');
+  });
+
+  it('returns ValidationError for empty vatNumber (no network request)', async () => {
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validateAsync({ vatNumber: '' });
+
+    expect(result.data).toBeNull();
+    expect(result.error).toBeInstanceOf(ValidationError);
+    expect(result.error!.code).toBe('missing_parameter');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('returns ValidationError for whitespace-only vatNumber', async () => {
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validateAsync({ vatNumber: '   ' });
+
+    expect(result.data).toBeNull();
+    expect(result.error).toBeInstanceOf(ValidationError);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('returns AuthenticationError on 401', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      mockResponse(
+        { error: { message: 'Invalid API key', code: 'unauthorized' }, meta: { request_id: 'req_async_401' } },
+        401,
+      ),
+    );
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validateAsync({ vatNumber: 'DE123456789' });
+
+    expect(result.data).toBeNull();
+    expect(result.error).toBeInstanceOf(AuthenticationError);
+    expect(result.error!.code).toBe('unauthorized');
+    expect(result.error!.statusCode).toBe(401);
+  });
+
+  it('returns AuthenticationError on 403 tier_insufficient', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      mockResponse(
+        { error: { message: 'Upgrade your plan', code: 'tier_insufficient' }, meta: { request_id: 'req_async_tier' } },
+        403,
+      ),
+    );
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validateAsync({ vatNumber: 'DE123456789' });
+
+    expect(result.error).toBeInstanceOf(AuthenticationError);
+    expect(result.error!.code).toBe('tier_insufficient');
+    expect(result.error!.statusCode).toBe(403);
+  });
+
+  it('returns VatlyError on 400 webhook_not_configured', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      mockResponse(
+        { error: { message: 'No webhook URL configured', code: 'webhook_not_configured' }, meta: { request_id: 'req_async_wh' } },
+        400,
+      ),
+    );
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validateAsync({ vatNumber: 'DE123456789' });
+
+    expect(result.error).toBeInstanceOf(VatlyError);
+    expect(result.error).not.toBeInstanceOf(AuthenticationError);
+    expect(result.error).not.toBeInstanceOf(ValidationError);
+    expect(result.error!.code).toBe('webhook_not_configured');
+    expect(result.error!.statusCode).toBe(400);
+  });
+
+  it('returns RateLimitError on 429', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      mockResponse(
+        { error: { message: 'Rate limit exceeded', code: 'rate_limit_exceeded' }, meta: { request_id: 'req_async_rl' } },
+        429,
+        { 'retry-after': '30' },
+      ),
+    );
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validateAsync({ vatNumber: 'DE123456789' });
+
+    expect(result.error).toBeInstanceOf(RateLimitError);
+    expect((result.error as RateLimitError).retryAfter).toBe(30);
+    expect(result.error!.statusCode).toBe(429);
+  });
+
+  it('returns VatlyError on timeout', async () => {
+    fetchSpy.mockImplementationOnce(() =>
+      new Promise((_, reject) => {
+        const err = new Error('The operation was aborted');
+        err.name = 'AbortError';
+        reject(err);
+      }),
+    );
+    const client = new Vatly({ apiKey: MOCK_API_KEY, timeout: 100 });
+    const result = await client.vat.validateAsync({ vatNumber: 'DE123456789' });
+
+    expect(result.data).toBeNull();
+    expect(result.error).toBeInstanceOf(VatlyError);
+    expect(result.error!.message).toContain('timed out');
+    expect(result.error!.code).toBe('timeout');
+  });
+
+  it('returns VatlyError on network error', async () => {
+    fetchSpy.mockRejectedValueOnce(new Error('getaddrinfo ENOTFOUND api.vatly.dev'));
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validateAsync({ vatNumber: 'DE123456789' });
+
+    expect(result.error).toBeInstanceOf(VatlyError);
+    expect(result.error!.code).toBe('network_error');
+  });
+});
+
+// ─── vatly.vat.validateBatchAsync() ─────────────────────────
+
+describe('vatly.vat.validateBatchAsync()', () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  const ASYNC_BATCH_RESPONSE = {
+    data: {
+      batch_id: '660e8400-e29b-41d4-a716-446655440000',
+      status: 'pending',
+      total: 2,
+      accepted: 2,
+      rejected: [],
+    },
+    meta: {
+      request_id: 'req_async_batch1',
+    },
+  };
+
+  const ASYNC_BATCH_MIXED_RESPONSE = {
+    data: {
+      batch_id: '770e8400-e29b-41d4-a716-446655440000',
+      status: 'pending',
+      total: 3,
+      accepted: 2,
+      rejected: [
+        { vat_number: 'XX000', error: { code: 'invalid_vat_format', message: 'Invalid format' } },
+      ],
+    },
+    meta: {
+      request_id: 'req_async_batch_mixed',
+    },
+  };
+
+  const ASYNC_BATCH_ALL_REJECTED_RESPONSE = {
+    data: {
+      batch_id: null,
+      status: 'completed',
+      total: 2,
+      accepted: 0,
+      rejected: [
+        { vat_number: 'XX1', error: { code: 'invalid_vat_format', message: 'Invalid' } },
+        { vat_number: 'XX2', error: { code: 'invalid_vat_format', message: 'Invalid' } },
+      ],
+    },
+    meta: {
+      request_id: 'req_async_batch_allrej',
+    },
+  };
+
+  it('returns { data, error: null } on 202 with all accepted', async () => {
+    fetchSpy.mockResolvedValueOnce(mockResponse(ASYNC_BATCH_RESPONSE, 202));
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validateBatchAsync({
+      vatNumbers: ['DE123456789', 'NL987654321B01'],
+    });
+
+    expect(result.error).toBeNull();
+    expect(result.data!.data.batchId).toBe('660e8400-e29b-41d4-a716-446655440000');
+    expect(result.data!.data.status).toBe('pending');
+    expect(result.data!.data.total).toBe(2);
+    expect(result.data!.data.accepted).toBe(2);
+    expect(result.data!.data.rejected).toEqual([]);
+    expect(result.data!.meta.requestId).toBe('req_async_batch1');
+  });
+
+  it('sends POST to /v1/validate/async/batch with correct JSON body', async () => {
+    fetchSpy.mockResolvedValueOnce(mockResponse(ASYNC_BATCH_RESPONSE, 202));
+    const client = new Vatly(MOCK_API_KEY);
+    await client.vat.validateBatchAsync({
+      vatNumbers: ['DE123456789', 'NL987654321B01'],
+    });
+
+    const [callUrl, callInit] = fetchSpy.mock.calls[0];
+    expect(callUrl).toContain('/v1/validate/async/batch');
+    expect(callInit.method).toBe('POST');
+    const body = JSON.parse(callInit.body);
+    expect(body.vat_numbers).toEqual(['DE123456789', 'NL987654321B01']);
+  });
+
+  it('returns response with rejected items (mixed accepted/rejected)', async () => {
+    fetchSpy.mockResolvedValueOnce(mockResponse(ASYNC_BATCH_MIXED_RESPONSE, 202));
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validateBatchAsync({
+      vatNumbers: ['DE123456789', 'NL987654321B01', 'XX000'],
+    });
+
+    expect(result.data!.data.total).toBe(3);
+    expect(result.data!.data.accepted).toBe(2);
+    expect(result.data!.data.rejected).toHaveLength(1);
+    expect(result.data!.data.rejected[0].vatNumber).toBe('XX000');
+    expect(result.data!.data.rejected[0].error.code).toBe('invalid_vat_format');
+  });
+
+  it('returns response with batchId: null and status: completed when all rejected', async () => {
+    fetchSpy.mockResolvedValueOnce(mockResponse(ASYNC_BATCH_ALL_REJECTED_RESPONSE, 202));
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validateBatchAsync({
+      vatNumbers: ['XX1', 'XX2'],
+    });
+
+    expect(result.data!.data.batchId).toBeNull();
+    expect(result.data!.data.status).toBe('completed');
+    expect(result.data!.data.accepted).toBe(0);
+    expect(result.data!.data.rejected).toHaveLength(2);
+  });
+
+  it('sends requester_vat_number in body when provided', async () => {
+    fetchSpy.mockResolvedValueOnce(mockResponse(ASYNC_BATCH_RESPONSE, 202));
+    const client = new Vatly(MOCK_API_KEY);
+    await client.vat.validateBatchAsync({
+      vatNumbers: ['DE123456789'],
+      requesterVatNumber: 'NL987654321B01',
+    });
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.requester_vat_number).toBe('NL987654321B01');
+  });
+
+  it('sends cache: false in body', async () => {
+    fetchSpy.mockResolvedValueOnce(mockResponse(ASYNC_BATCH_RESPONSE, 202));
+    const client = new Vatly(MOCK_API_KEY);
+    await client.vat.validateBatchAsync({
+      vatNumbers: ['DE123456789'],
+      cache: false,
+    });
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.cache).toBe(false);
+  });
+
+  it('does NOT enforce a client-side max size', async () => {
+    fetchSpy.mockResolvedValueOnce(mockResponse(ASYNC_BATCH_RESPONSE, 202));
+    const client = new Vatly(MOCK_API_KEY);
+    const vatNumbers = Array.from({ length: 200 }, (_, i) => `DE${String(i).padStart(9, '0')}`);
+    const result = await client.vat.validateBatchAsync({ vatNumbers });
+
+    expect(result.error).toBeNull();
+    expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+
+  it('trims whitespace from vatNumbers', async () => {
+    fetchSpy.mockResolvedValueOnce(mockResponse(ASYNC_BATCH_RESPONSE, 202));
+    const client = new Vatly(MOCK_API_KEY);
+    await client.vat.validateBatchAsync({
+      vatNumbers: ['  DE123456789  ', ' NL987654321B01 '],
+    });
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.vat_numbers).toEqual(['DE123456789', 'NL987654321B01']);
+  });
+
+  it('returns ValidationError for empty array (no network request)', async () => {
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validateBatchAsync({ vatNumbers: [] });
+
+    expect(result.data).toBeNull();
+    expect(result.error).toBeInstanceOf(ValidationError);
+    expect(result.error!.code).toBe('missing_parameter');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('parses rate limit headers', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      mockResponse(ASYNC_BATCH_RESPONSE, 202, {
+        'x-ratelimit-limit': '50',
+        'x-ratelimit-remaining': '48',
+        'x-ratelimit-reset': '2026-05-01T00:00:00Z',
+      }),
+    );
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validateBatchAsync({ vatNumbers: ['DE123456789'] });
+
+    expect(result.data!.rateLimit).toEqual({
+      limit: 50,
+      remaining: 48,
+      reset: '2026-05-01T00:00:00Z',
+      retryAfter: null,
+      burstLimit: null,
+      burstRemaining: null,
+    });
+  });
+
+  it('returns AuthenticationError on 401', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      mockResponse(
+        { error: { message: 'Invalid API key', code: 'unauthorized' }, meta: { request_id: 'req_ab_401' } },
+        401,
+      ),
+    );
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validateBatchAsync({ vatNumbers: ['DE123456789'] });
+
+    expect(result.error).toBeInstanceOf(AuthenticationError);
+    expect(result.error!.code).toBe('unauthorized');
+  });
+
+  it('returns AuthenticationError on 403 tier_insufficient', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      mockResponse(
+        { error: { message: 'Upgrade your plan', code: 'tier_insufficient' }, meta: { request_id: 'req_ab_tier' } },
+        403,
+      ),
+    );
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validateBatchAsync({ vatNumbers: ['DE123456789'] });
+
+    expect(result.error).toBeInstanceOf(AuthenticationError);
+    expect(result.error!.code).toBe('tier_insufficient');
+  });
+
+  it('returns VatlyError on 400 webhook_not_configured', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      mockResponse(
+        { error: { message: 'No webhook URL configured', code: 'webhook_not_configured' }, meta: { request_id: 'req_ab_wh' } },
+        400,
+      ),
+    );
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validateBatchAsync({ vatNumbers: ['DE123456789'] });
+
+    expect(result.error).toBeInstanceOf(VatlyError);
+    expect(result.error).not.toBeInstanceOf(AuthenticationError);
+    expect(result.error).not.toBeInstanceOf(ValidationError);
+    expect(result.error!.code).toBe('webhook_not_configured');
+    expect(result.error!.statusCode).toBe(400);
+  });
+
+  it('returns RateLimitError on 429', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      mockResponse(
+        { error: { message: 'Rate limit exceeded', code: 'rate_limit_exceeded' }, meta: { request_id: 'req_ab_rl' } },
+        429,
+        { 'retry-after': '15' },
+      ),
+    );
+    const client = new Vatly(MOCK_API_KEY);
+    const result = await client.vat.validateBatchAsync({ vatNumbers: ['DE123456789'] });
+
+    expect(result.error).toBeInstanceOf(RateLimitError);
+    expect((result.error as RateLimitError).retryAfter).toBe(15);
   });
 });
 

@@ -21,7 +21,17 @@ export type ErrorCode =
   | 'key_revoked'
   | 'key_limit_reached'
   | 'internal_error'
-  | 'not_found';
+  | 'not_found'
+  | 'webhook_not_configured';
+
+/** Error codes generated client-side by the SDK (not returned by the API). */
+export type ClientErrorCode =
+  | 'timeout'
+  | 'network_error'
+  | 'parse_error'
+  | 'unknown_error'
+  | 'missing_api_key'
+  | 'batch_too_large';
 
 // --- Configuration ---
 
@@ -50,7 +60,7 @@ export interface VatValidationData {
   vatNumber: string;
   countryCode: string;
   company: Company | null;
-  consultationNumber: string | null;
+  consultationNumber?: string | null;
   requestedAt: string;
 }
 
@@ -126,6 +136,59 @@ export interface BatchResponseMeta {
 export interface ValidateBatchResponse {
   data: { results: BatchResult[]; summary: BatchSummary };
   meta: BatchResponseMeta;
+  rateLimit: RateLimitInfo;
+}
+
+// --- Async Validate ---
+
+export interface AsyncValidateParams {
+  vatNumber: string;
+  requesterVatNumber?: string;
+  cache?: boolean;
+  requestId?: string;
+}
+
+export interface AsyncValidateData {
+  requestId: string;
+  status: 'pending';
+  vatNumber: string;
+}
+
+export interface AsyncMeta {
+  requestId: string;
+}
+
+export interface AsyncValidateResponse {
+  data: AsyncValidateData;
+  meta: AsyncMeta;
+  rateLimit: RateLimitInfo;
+}
+
+// --- Async Batch Validate ---
+
+export interface AsyncBatchValidateParams {
+  vatNumbers: string[];
+  requesterVatNumber?: string;
+  cache?: boolean;
+  requestId?: string;
+}
+
+export interface AsyncRejectedItem {
+  vatNumber: string;
+  error: { code: string; message: string };
+}
+
+export interface AsyncBatchValidateData {
+  batchId: string | null;
+  status: 'pending' | 'completed';
+  total: number;
+  accepted: number;
+  rejected: AsyncRejectedItem[];
+}
+
+export interface AsyncBatchValidateResponse {
+  data: AsyncBatchValidateData;
+  meta: AsyncMeta;
   rateLimit: RateLimitInfo;
 }
 
